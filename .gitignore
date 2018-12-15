@@ -1,0 +1,4 @@
+checkpoints/*
+dataset/mnist/data/*
+*.pyc
+processdata/*
