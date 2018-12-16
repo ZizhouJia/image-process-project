@@ -1,4 +1,5 @@
 checkpoints/*
-dataset/mnist/data/*
 *.pyc
-processdata/*
+dataset/img_align_celeba/*
+dataset/img_align_celeba.zip
+runs/*

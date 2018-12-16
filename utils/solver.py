@@ -1,12 +1,14 @@
 import os
 from datetime import datetime
 from tensorboardX import SummaryWriter
+import torch
+import torch.nn as nn
 
 def get_time_string():
-    dt=datetime.datetime.now()
+    dt=datetime.now()
     return dt.strftime("%Y%m%d%H%M")
 
-class solver:
+class solver(object):
     def __init__(self,models,model_name,optmizers,save_path="checkpoints"):
         self.models=models
         self.model_name=model_name
@@ -26,23 +28,32 @@ class solver:
         for i in range(0,len(self.models)):
             self.models[i]=self.models[i].cuda()
 
+    def parallel(self,device_ids=[0,1]):
+        for i in range(0,len(self.models)):
+            self.models[i]=nn.DataParallel(self.models[i],device_ids)
+        #if(self.optimizers is not None):
+        for i in range(0,len(self.optimizers)):
+            self.optimizers[i]=nn.DataParallel(self.optimizers[i],device_ids)
+
+
+
     def cpu(self):
         for i in range(0,len(self.models)):
             self.models[i]=self.models[i].cpu()
 
-    def set_optimizers(self,optmizers):
+    def set_optimizers(self,optimizers):
         self.optimizers=optimizers
 
     def zero_grad_for_all(self):
-        for optimizer in optimizers:
+        for optimizer in self.optimizers:
             optimizer.zero_grad()
 
     def train_mode(self):
-        for model in models:
+        for model in self.models:
             model.train()
 
     def eval_mode(self):
-        for model in models:
+        for model in self.models:
             model.eval()
 
     def write_log(self,loss,index):
@@ -50,7 +61,8 @@ class solver:
             self.writer.add_scalar("saclar/"+key,loss[key],index)
 
     def output_loss(self,loss,epoch,iteration):
-        print("in epoch %d iteration %d "+str(loss))
+        print("in epoch %d iteration %d "%(epoch,iteration))
+        print(loss)
 
 
     def save_models(self,epoch=-1):
@@ -86,7 +98,7 @@ class solver:
         file_name="model"
 
         for i in range(0,len(self.models)):
-            models[i].load_state_dict(torch.load(os.path.join(path,file_name+"-"+str(i)+".pkl")))
+            self.models[i].load_state_dict(torch.load(os.path.join(path,file_name+"-"+str(i)+".pkl")))
 
     def update_optimizers(self,epoch):
         pass

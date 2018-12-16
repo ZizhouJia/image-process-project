@@ -1,8 +1,12 @@
-import utils.solver.solver as solver
+import utils.solver as solver
 import utils.loss_function as loss_function
 import torch.nn.functional as F
+import numpy as np
+import os
+import cv2
+import torch
 
-class GAN_solver(solver):
+class GAN_solver(solver.solver):
     def __init__(self,models,model_name,optimizers,save_path="checkpoints"):
         super(GAN_solver,self).__init__(models,model_name,optimizers)
         self.encoder,self.decoder,self.discriminator=self.models
@@ -15,7 +19,13 @@ class GAN_solver(solver):
         id1=input_dict["id1"]
         id2=input_dict["id2"]
         emotion1=input_dict["emotion1"]
-        emotion2=input_dict["emothon2"]
+        emotion2=input_dict["emotion2"]
+
+        d_x=input_dict["d_x"]
+        d_id=input_dict["d_id"]
+        d_emotion=input_dict["d_emotion"]
+
+        epoch=input_dict["epoch"]
 
         feature_id1,feature_emotion1=self.encoder(x1)
         feature_id2,feature_emotion2=self.encoder(x2)
@@ -26,64 +36,69 @@ class GAN_solver(solver):
         rct_x1=self.decoder(feature_id1,feature_emotion1)
         rct_x2=self.decoder(feature_id2,feature_emotion2)
 
-        dis_fake_x1,dis_f_id1,dis_f_emo2=self.discriminator(fake_x1)
-        dis_fake_x2,dis_f_id2,dis_f_emo1=self.discriminator(fake_x2)
-        dis_real_x1,dis_r_id1,dis_r_emo1=self.discriminator(x1)
-        dis_real_x2,dis_r_id2,dis_r_emo2=self.discriminator(x2)
-
         feature_id1_fake,feature_emotion2_fake=self.encoder(fake_x1)
         feature_id2_fake,feature_emotion1_fake=self.encoder(fake_x2)
 
         cyc_x1=self.decoder(feature_id1_fake,feature_emotion1_fake)
         cyc_x2=self.decoder(feature_id2_fake,feature_emotion2_fake)
 
-        d_real_loss=(loss_function.D_real_loss(dis_real_x1,"lsgan")+loss_function.D_real_loss(dis_real_x2,"lsgan"))
-        d_fake_loss=(loss_function.D_fake_loss(dis_fake_x1,"lsgan")+loss_function.D_fake_loss(dis_fake_x2,"lsgan"))
+        g_batch_size=x1.size()[0]
+
+        x=torch.cat((d_x,fake_x1,fake_x2,x1,x2),0)
+
+        dis_x,dis_emo=self.discriminator(x)
+        dis_batch_x=dis_x[:-4*g_batch_size,:]
+        #dis_batch_id=dis_id[:-4*g_batch_size,:]
+        dis_batch_emo=dis_emo[:-4*g_batch_size,:]
+        dis_fake_x=dis_x[-4*g_batch_size:-2*g_batch_size,:]
+        #dis_fake_id=dis_id[-4*g_batch_size:-2*g_batch_size,:]
+        dis_fake_emo=dis_emo[-4*g_batch_size:-2*g_batch_size,:]
+        dis_real_x=dis_x[-2*g_batch_size:,:]
+        #dis_real_id=dis_id[-2*g_batch_size:,:]
+        dis_real_emo=dis_emo[-2*g_batch_size:,:]
+
+
+        d_real_loss=loss_function.D_real_loss(dis_real_x,"lsgan")
+        d_fake_loss=loss_function.D_fake_loss(dis_fake_x,"lsgan")
         d_loss=d_real_loss+d_fake_loss
 
-        g_loss=(loss_function.G_fake_loss(dis_fake_x1,"lsgan")+loss_function.G_fake_loss(dis_fake_x2,"lsgan"))/2
+        g_loss=loss_function.G_fake_loss(dis_fake_x,"lsgan")
 
         rct_image_loss=loss_function.l1_loss(x1,rct_x1)+loss_function.l1_loss(x2,rct_x2)
         rct_image_loss=rct_image_loss/2
 
-        cyc_rct_image_loss=loss_function.l1_loss(x1,cyc_x1)+loss_function(x2,cyc_x2)
+        cyc_rct_image_loss=loss_function.l1_loss(x1,cyc_x1)+loss_function.l1_loss(x2,cyc_x2)
         cyc_rct_image_loss=cyc_rct_image_loss/2
 
-        rct_feature_id_loss=loss_function.l1_loss(feature_id1,feature_id1_fake)+loss_function.l1_loss(feature_id2,feature_id2_fake)
-        rct_feature_id_loss=rct_feature_id_loss/2
+        #rct_feature_id_loss=loss_function.l1_loss(feature_id1,feature_id1_fake)+loss_function.l1_loss(feature_id2,feature_id2_fake)
+        #rct_feature_id_loss=rct_feature_id_loss/2
 
-        rct_feature_emo_loss=loss_function.l1_loss(feature_emotion1,feature_emotion1_fake)+loss_function.l1_loss(feature_emotion2,feature_emotion2_fake)
-        rct_feature_emo_loss=rct_feature_emo_loss/2
+        #rct_feature_emo_loss=loss_function.l1_loss(feature_emotion1,feature_emotion1_fake)+loss_function.l1_loss(feature_emotion2,feature_emotion2_fake)
+        #rct_feature_emo_loss=rct_feature_emo_loss/2
 
-        d_classify_id_loss=F.binary_cross_entropy_with_logits(dis_r_id1,id1,size_average=False)/dis_r_id1.size()[0]+F.binary_cross_entropy_with_logits(dis_r_id2,id2,size_average=False)/dis_r_id2.size()[0]
-        d_classify_id_loss=d_classify_id_loss/2
+        #d_classify_id_loss=F.binary_cross_entropy_with_logits(dis_batch_id,d_id,size_average=False)/dis_batch_id.size()[0]
 
-        d_classify_emo_loss=F.binary_cross_entropy_with_logits(dis_r_emo1,emotion1,size_average=False)/dis_r_emo1.size()[0]+F.binary_cross_entropy_with_logits(dis_r_emo2,emotion2,size_average=False)/dis_r_emo2.size()[0]
-        d_classify_emo_loss=d_classify_emo_loss/2
+        d_classify_emo_loss=F.binary_cross_entropy_with_logits(dis_batch_emo,d_emotion,size_average=False)/dis_batch_emo.size()[0]
 
-        g_classify_id_loss=F.binary_cross_entropy_with_logits(dis_f_id1,id1,size_average=False)/dis_f_id1.size()[0]+F.binary_cross_entropy_with_logits(dis_f_id2,id2,size_average=False)/dis_f_id2.size()[0]
-        g_classify_id_loss=g_classify_id_loss/2
+        #g_classify_id_loss=F.binary_cross_entropy_with_logits(dis_fake_id,torch.cat((id1,id2),0),size_average=False)/dis_fake_id.size()[0]
 
-        g_classify_emo_loss=F.binary_cross_entropy_with_logits(dis_f_emo1,emotion1,size_average=False)/dis_f_emo1.size()[0]+F.binary_cross_entropy_with_logits(dis_f_emo2,emotion2,size_average=False)/dis_f_emo2.size()[0]
-        g_classify_emo_loss=g_classify_emo_loss/2
+        g_classify_emo_loss=F.binary_cross_entropy_with_logits(dis_fake_emo,torch.cat((emotion2,emotion1),0),size_average=False)/dis_fake_emo.size()[0]
 
         total_g_loss=g_loss+\
-        1.0*rct_feature_id_loss+ \
-        1.0*rct_feature_emo_loss+ \
         10*cyc_rct_image_loss+ \
-        10*rct_image_loss+ \
-        1.0*g_classify_id_loss+ \
-        1.0*g_classify_emo_loss+ \
+        10*rct_image_loss
 
-        total_d_loss=d_loss+ \
-        1.0*d_classify_id_loss+ \
-        1.0*d_classify_emo_loss
+        #total_g_loss+=g_classify_id_loss
+        total_g_loss+=g_classify_emo_loss
+
+        total_d_loss=d_loss+1.0*d_classify_emo_loss        #1.0*d_classify_id_loss+ \
+
 
         total_d_loss.backward(retain_graph=True)
         self.dis_opt.step()
         self.zero_grad_for_all()
 
-        total_g_loss.backward(retain_graph=True)
+        total_g_loss.backward()
         self.e_opt.step()
         self.d_opt.step()
         self.zero_grad_for_all()
@@ -91,12 +106,12 @@ class GAN_solver(solver):
         loss["g_loss"]=g_loss.detach().cpu().item()
         loss["rct_image_loss"]=rct_image_loss.detach().cpu().item()
         loss["cyc_rct_image_loss"]=cyc_rct_image_loss.detach().cpu().item()
-        loss["rct_id_loss"]=rct_feature_id_loss.detach().cpu().item()
-        loss["rct_feature_loss"]=rct_feature_emo_loss.detach().cpu().item()
-        loss["g_classify_id_loss"]=g_classify_id_loss.detach().cpu().item()
+        #loss["rct_id_loss"]=rct_feature_id_loss.detach().cpu().item()
+        #loss["rct_feature_loss"]=rct_feature_emo_loss.detach().cpu().item()
+        #loss["g_classify_id_loss"]=g_classify_id_loss.detach().cpu().item()
         loss["g_classify_emo_loss"]=g_classify_emo_loss.detach().cpu().item()
         loss["d_loss"]=d_loss.detach().cpu().item()
-        loss["d_classify_id_loss"]=d_classify_id_loss.detach().cpu().item()
+        #loss["d_classify_id_loss"]=d_classify_id_loss.detach().cpu().item()
         loss["d_Classify_emo_loss"]=d_classify_emo_loss.detach().cpu().item()
         loss["total_g_loss"]=total_g_loss.detach().cpu().item()
         loss["total_d_loss"]=total_d_loss.detach().cpu().item()
@@ -132,20 +147,26 @@ class GAN_solver(solver):
             image=image.astype(np.int32)
             cv2.imwrite(os.path.join("test_output","test_"+str(i)+".jpg"),image)
 
-    def train_loop(self,dataloader,param_dict,epochs=100):
+    def train_loop(self,dataloader,d_dataprovider,param_dict,epochs=100):
         iteration_count=0
         for i in range(0,epochs):
-            for step,(x1,x2,id1,id2,emotion1,emothon2) in enumerate(dataloader):
+            for step,(x1,x2,id1,id2,emotion1,emotion2) in enumerate(dataloader):
+                d_x1,d_x2,d_id1,d_id2,d_emotion1,d_emotion2=d_dataprovider.next()
                 input_dict={}
                 input_dict["x1"]=x1.cuda()
                 input_dict["x2"]=x2.cuda()
                 input_dict["id1"]=id1.cuda()
                 input_dict["id2"]=id2.cuda()
-                input_dict["emothon1"]=emothon1.cuda()
-                input_dict["emothon2"]=emothon2.cuda()
+                input_dict["emotion1"]=emotion1.cuda()
+                input_dict["emotion2"]=emotion2.cuda()
+                input_dict["d_x"]=torch.cat((d_x1.cuda(),d_x2.cuda()),0)
+                input_dict["d_id"]=torch.cat((d_id1.cuda(),d_id2.cuda()),0)
+                input_dict["d_emotion"]=torch.cat((d_emotion1.cuda(),d_emotion2.cuda()),0)
+                input_dict["epoch"]=i
                 loss=self.train_one_batch(input_dict)
                 iteration_count+=1
-                if(iteration_count%100==0):
+                if(iteration_count%1==0):
                     self.write_log(loss,iteration_count)
                     self.output_loss(loss,i,iteration_count)
-    
+            if(i%1==0):
+                self.save_models(epoch=i)
