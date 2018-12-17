@@ -128,24 +128,20 @@ class GAN_solver(solver.solver):
         fake_x2=self.decoder(feature_id1,feature_emotion2)
 
         x1=(x1+1)/2
-        fake_x1=(fake_x1)/2
-        fake_x2=(fake_x2)/2
+        fake_x1=(fake_x1+1)/2
+        fake_x2=(fake_x2+1)/2
         x2=(x2+1)/2
 
-        x1=x1.permute(0,2,3,1).cpu().detach().numpy()
-        x2=x2.permute(0,2,3,1).cpu().detach().numpy()
-        fake_x1=fake_x1.permute(0,2,3,1).cpu().detach().numpy()
-        fake_x2=fake_x2.permute(0,2,3,1).cpu().detach().numpy()
-
-        for i in range(0,batch_size):
-            image=np.zeros(x1.shape[2],x1.shape[3]*4,3)
-            image[0:x1.shape[2],0:x1.shape[3],3]=x1[i,:,:,:]
-            image[0:x1.shape[2],x1.shape[3]:x1.shape[3]*2,3]=fake_x1[i,:,:,:]
-            image[0:x1.shape[2],x1.shape[3]*2:x1.shape[3]*3,3]=fake_x2[i,:,:,:]
-            image[0:x1.shape[2],x1.shape[3]*3:x1.shape[3]*4,3]=x2[i,:,:,:]
-            image=image*255
-            image=image.astype(np.int32)
-            cv2.imwrite(os.path.join("test_output","test_"+str(i)+".jpg"),image)
+        x1=x1.cpu().detach().numpy()
+        x2=x2.cpu().detach().numpy()
+        fake_x1=fake_x1.cpu().detach().numpy()
+        fake_x2=fake_x2.cpu().detach().numpy()
+        out_images=np.zeros(batch_size,3,x1.shape[2],x1.shape[3])
+        out_images[:,:,0:x1.shape[2],0:x1.shape[3]]=x1
+        out_images[:,:,0:x1.shape[2],x1.shape[3]:x1.shape[3]*2]=fake_x1
+        out_images[:,:,0:x1.shape[2],x1.shape[3]*2:x1.shape[3]*3]=fake_x2
+        out_images[:,:,0:x1.shape[2],x1.shape[3]*3:x1.shape[3]*4]=x2
+        return out_images
 
     def train_loop(self,dataloader,d_dataprovider,param_dict,epochs=100):
         iteration_count=0
@@ -168,5 +164,10 @@ class GAN_solver(solver.solver):
                 if(iteration_count%1==0):
                     self.write_log(loss,iteration_count)
                     self.output_loss(loss,i,iteration_count)
+                if(iteration_count%100==0):
+                    out_images=test_one_batch(input_dict)
+                    images={}
+                    iamges["image"]=out_images
+                    self.write_log_image(out_images,int(iteration_count/100))
             if(i%1==0):
                 self.save_models(epoch=i)
