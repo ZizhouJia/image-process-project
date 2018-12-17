@@ -64,6 +64,10 @@ class solver(object):
         print("in epoch %d iteration %d "%(epoch,iteration))
         print(loss)
 
+    def write_log_image(self,image,index):
+        for key in image:
+            self.writer.add_image('image/'+key,image,index)
+
 
     def save_models(self,epoch=-1):
         path=self.save_path
