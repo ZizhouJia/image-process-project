@@ -3,6 +3,7 @@ from datetime import datetime
 from tensorboardX import SummaryWriter
 import torch
 import torch.nn as nn
+import torchvision.utils as vutils
 
 def get_time_string():
     dt=datetime.now()
@@ -66,8 +67,7 @@ class solver(object):
 
     def write_log_image(self,image,index):
         for key in image:
-            self.writer.add_image('image/'+key,image,index)
-
+            self.writer.add_image('image/'+key,vutils.make_grid(image[key],1),index)
 
     def save_models(self,epoch=-1):
         path=self.save_path
@@ -113,7 +113,7 @@ class solver(object):
     def test_one_batch(self,input_dict):
         raise NotImplementedError
 
-    def train_loop(self,dataloader,param_dict,epochs=100):
+    def train_loop(self,param_dict,epochs=100):
         raise NotImplementedError
 
     def test_all(self,dataloader):

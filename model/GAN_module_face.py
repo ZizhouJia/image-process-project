@@ -11,13 +11,16 @@ import torchvision.transforms as transforms
 
 def weight_init_normal(m):
     classname=m.__class__.__name__
-    if classname.find('Conv')!=-1:
+    if classname.find('Conv2d')!=-1:
+        init.normal_(m.weight.data,0.0,0.02)
+    elif classname.find('ConvTranspose2d')!=-1:
         init.normal_(m.weight.data,0.0,0.02)
     elif classname.find('Linear')!=-1:
         init.normal_(m.weight.data,0.0,0.02)
-    elif classname.find('BatchNorm2d')!=-1:
-        init.normal_(m.weight.data,1.0,0.02)
         init.constant_(m.bias.data,0.0)
+#    elif classname.find('Norm2d')!=-1:
+        #init.normal_(m.weight.data,1.0,0.02)
+
 
 def init_weights(nets):
     for net in nets:
@@ -25,12 +28,12 @@ def init_weights(nets):
 
 
 class Discriminator(nn.Module):
-    def __init__(self,img_size=128,conv_dim=64,num_emotion=40,num_id=10177,repeat_num=6,norm='bn',activ='lrelu'):
+    def __init__(self,img_size=128,conv_dim=64,num_emotion=40,num_id=10177,repeat_num=6,norm='in',activ='lrelu'):
         super(Discriminator,self).__init__()
 
         self.model=[]
         #64*64*3->32*32*64
-        self.model+=[Conv2dBlock(3, conv_dim, kernel_size=4, stride=2, padding=1,norm='bn',activation=activ)]
+        self.model+=[Conv2dBlock(3, conv_dim, kernel_size=4, stride=2, padding=1,norm='in',activation=activ)]
         #downsampling blocks
         for i in range(repeat_num-1):
             #num_layer=5,32*32*64->16*16*128->8*8*256->4*4*512->2*2*1024
@@ -41,11 +44,11 @@ class Discriminator(nn.Module):
         k_s=int(img_size/np.power(2,repeat_num))
 
         #2*2*1024->2*2*1
-        self.conv1=nn.Conv2d(conv_dim,1,kernel_size=2,stride=1,padding=0,bias=True)
+        self.conv1=nn.Conv2d(conv_dim,1,kernel_size=2,stride=1,padding=0,bias=False)
         #2*2*1024->1*1*10177
-        self.conv2=nn.Conv2d(conv_dim,num_id,kernel_size=k_s,bias=True)
+        self.conv2=nn.Conv2d(conv_dim,num_id,kernel_size=k_s,bias=False)
         #2*2*1024->1*1*40
-        self.conv3=nn.Conv2d(conv_dim,num_emotion,kernel_size=k_s,bias=True)
+        self.conv3=nn.Conv2d(conv_dim,num_emotion,kernel_size=k_s,bias=False)
 
     def forward(self,x):
         x=self.model(x)
@@ -54,183 +57,68 @@ class Discriminator(nn.Module):
         out_img_emotion=self.conv3(x)
         return out_img_judge ,out_img_emotion.view(out_img_emotion.size(0),out_img_emotion.size(1))#out_img_id.view(out_img_id.size(0),out_img_id.size(1)),out_img_emotion.view(out_img_emotion.size(0),out_img_emotion.size(1))
 
+class NTimesTanh(nn.Module):
+    def __init__(self,n):
+        super(NTimesTanh,self).__init__()
+        self.n=n
+        self.tanh=nn.Tanh()
+
+    def forward(self,x):
+        return self.tanh(x)*self.n
+
+
 
 
 class Encoder(nn.Module):
     def __init__(self):
         super(Encoder,self).__init__()
-        #64*64*3->16*16*256
-        self.face_enc=FaceEncoder(num_downsample=2,num_resnet=4,input_dim=3,output_dim=64,norm='in',activ='relu')
-        #64*64*3->1*1*8
-        self.exp_enc=ExpressionEncoder(num_downsample=4,input_dim=3,output_dim=64,exp_dim=128,norm='none',activ='relu')
+        self.main=nn.ModuleList([
+            nn.Sequential(Conv2dBlock(3, 64, kernel_size=3, stride=2, padding=1,norm='in',activation='lrelu')),
+            nn.Sequential(Conv2dBlock(64, 128, kernel_size=3, stride=2, padding=1,norm='in',activation='lrelu')),
+            nn.Sequential(Conv2dBlock(128, 256, kernel_size=3, stride=2, padding=1,norm='in',activation='lrelu')),
+            nn.Sequential(Conv2dBlock(256, 512, kernel_size=3, stride=2, padding=1,norm='in',activation='lrelu'))
+        ])
+        # init_weights(self.main)
+        # #64*64*3->16*16*256
+        # self.face_enc=FaceEncoder(num_downsample=2,num_resnet=4,input_dim=3,output_dim=64,norm='in',activ='relu')
+        # #64*64*3->1*1*8
+        # self.exp_enc=ExpressionEncoder(num_downsample=4,input_dim=3,output_dim=64,exp_dim=128,norm='none',activ='relu')
 
     def forward(self,x):
-        face_info=self.face_enc(x)
-        exp_info=self.exp_enc(x)
+        face_info=[]
+        exp_info=x
+        for i in range(len(self.main)):
+            exp_info=self.main[i](exp_info)
+            if(i<len(self.main)-1):
+                face_info.append(exp_info)
         return face_info,exp_info
 
 
 class Decoder(nn.Module):
     def __init__(self):
         super(Decoder,self).__init__()
-        self.dec=FaceDecoder(num_upsample=2,num_resnet=4,input_dim=256,output_dim=3,res_norm='adain',activ='relu')
-        self.mlp=MLP(input_dim=128, output_dim=self.get_num_adain_params(self.dec), dim=256, n_blk=3, norm='none', activ='relu')
+        self.main=nn.ModuleList([
+            nn.Sequential(ConvTranspose2dBlock(512, 256, kernel_size=3, stride=2, padding=1,norm='in',activation='relu')),
+            nn.Sequential(ConvTranspose2dBlock(256, 128, kernel_size=3, stride=2, padding=1,norm='in',activation='relu')),
+            nn.Sequential(ConvTranspose2dBlock(128, 64, kernel_size=3, stride=2, padding=1,norm='in',activation='relu')),
+            nn.Sequential(ConvTranspose2dBlock(64, 3, kernel_size=3, stride=2, padding=1,norm='in',activation='none')),
+        ])
+        self.activ=NTimesTanh(1)
+        # init_weights(self.main)
 
 
     def forward(self,face_info,exp_info):
-        adain_params = self.mlp(exp_info)
-        self.assign_adain_params(adain_params, self.dec)
-        x = self.dec(face_info)
-        return x
-
-    def assign_adain_params(self, adain_params, model):
-        # assign the adain_params to the AdaIN layers in model
-        for m in model.modules():
-            if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
-                mean = adain_params[:, :m.num_features]
-                std = adain_params[:, m.num_features:2*m.num_features]
-                m.bias = mean.contiguous().view(-1)
-                m.weight = std.contiguous().view(-1)
-                if adain_params.size(1) > 2*m.num_features:
-                    adain_params = adain_params[:, 2*m.num_features:]
-
-    def get_num_adain_params(self, model):
-        # return the number of AdaIN parameters needed by the model
-        num_adain_params = 0
-        for m in model.modules():
-            if m.__class__.__name__ == "AdaptiveInstanceNorm2d":
-                num_adain_params += 2*m.num_features
-        return num_adain_params
-
-
-class FaceEncoder(nn.Module):
-    def __init__(self,num_downsample=3,num_resnet=4,input_dim=3,output_dim=64,norm='in',activ='relu'):
-        super(FaceEncoder,self).__init__()
-        self.model=[]
-        #64*64*3->64*64*64
-        self.model+=[Conv2dBlock(input_dim, output_dim, kernel_size=7, stride=1, padding=3,norm=norm,activation=activ)]
-        #downsampling blocks
-        for i in range(num_downsample):
-            #num_downsample=2,64*64*64->32*32*128->16*16*256
-            self.model+=[Conv2dBlock(output_dim,2*output_dim,kernel_size=4, stride=2, padding=1,norm=norm,activation=activ)]
-            output_dim*=2
-        #residual blocks,16*16*256->16*16*256
-        self.model+=[ResBlocks(num_resnet, output_dim,norm=norm, activation=activ)]
-        self.model=nn.Sequential(*self.model)
-        #256
-        self.output_dim=output_dim
-
-    def forward(self,x):
-        return self.model(x)
-
-
-class ExpressionEncoder(nn.Module):
-    def __init__(self,num_downsample=5,input_dim=3,output_dim=64,exp_dim=128,norm='none',activ='relu'):
-        super(ExpressionEncoder,self).__init__()
-        self.model=[]
-        #64*64*3->64*64*64
-        self.model+=[Conv2dBlock(input_dim,output_dim,kernel_size=7,stride=1,padding=3,norm=norm,activation=activ)]
-        for i in range(2):
-            #64*64*64->32*32*128->16*16*256
-            self.model+=[Conv2dBlock(output_dim,2*output_dim,kernel_size=4, stride=2, padding=1,norm=norm,activation=activ)]
-            output_dim*=2
-        for i in range(num_downsample-2):
-            #num_downsample=4,16*16*256->8*8*256->4*4*256
-            self.model+=[Conv2dBlock(output_dim,output_dim,kernel_size=4, stride=2, padding=1,norm=norm,activation=activ)]
-        #global avg pooliing,4*4*256->1*1*256
-        self.model+=[nn.AdaptiveAvgPool2d(1)]
-        #1*1*256->1*1*128
-        self.model+=[nn.Conv2d(output_dim,exp_dim,kernel_size=1, stride=1, padding=0)]
-        self.model=nn.Sequential(*self.model)
-        self.output_dim=output_dim
-
-    def forward(self,x):
-        return self.model(x)
-
-class Interpolate(nn.Module):
-    def __init__(self,size,scale_factor=2,mode='nearest'):
-        self.interp=nn.functional.interpolate
-        self.scale_factor=scale_factor
-        self.size=size
-        self.mode=mode
-
-    def forward(self,x):
-        x=self.interp(x,size=self.size,scale_factor=self.scale_factor, mode=self.mode,align_corners=False)
-        return x
-
-
-class FaceDecoder(nn.Module):
-    def __init__(self,num_upsample=3,num_resnet=4,input_dim=256,output_dim=3,res_norm='adain',activ='relu'):
-        super(FaceDecoder,self).__init__()
-
-        self.model=[]
-        #AdaIN residual blocks,16*16*256
-        self.model+=[ResBlocks(num_resnet, input_dim,norm=res_norm, activation=activ)]
-        #upsampling
-        for i in range(num_upsample):
-            #num_upsample=2
-            #16*16*256->32*32*256->32*32*128
-            #32*32*128->64*64*128->64*64*64
-            self.model+=[nn.Upsample(scale_factor=2),Conv2dBlock(input_dim,input_dim//2,kernel_size=5, stride=1, padding=2,norm='ln',activation=activ)]
-            input_dim//=2
-        #now input_dim=64
-        #use reflection padding
-        #64*64*64->64*64*3
-        self.model+=[Conv2dBlock(input_dim,output_dim,kernel_size=7, stride=1, padding=3,norm='none',activation='tanh')]
-        self.model=nn.Sequential(*self.model)
-
-    def forward(self,x):
-        return self.model(x)
-
-
-class ResBlock(nn.Module):
-    def __init__(self, dim, norm='in', activation='relu'):
-        super(ResBlock, self).__init__()
-        model = []
-        model += [Conv2dBlock(dim ,dim, 3, 1, 1, norm=norm, activation=activation)]
-        model += [Conv2dBlock(dim ,dim, 3, 1, 1, norm=norm, activation='none')]
-        self.model = nn.Sequential(*model)
-
-    def forward(self, x):
-        residual = x
-        out = self.model(x)
-        out += residual
-        return out
-
-
-class ResBlocks(nn.Module):
-    def __init__(self, num_blocks, dim, norm='in', activation='relu'):
-        super(ResBlocks, self).__init__()
-        self.model = []
-        for i in range(num_blocks):
-            self.model += [ResBlock(dim, norm=norm, activation=activation)]
-        self.model = nn.Sequential(*self.model)
-
-    def forward(self, x):
-        return self.model(x)
-
-
-class MLP(nn.Module):
-    def __init__(self, input_dim, output_dim, dim=256, n_blk=3, norm='none', activ='relu'):
-        super(MLP, self).__init__()
-        self.model = []
-        #1*1*8->1*1*256
-        self.model += [LinearBlock(input_dim, dim, norm=norm, activation=activ)]
-        for i in range(n_blk - 2):
-            #1*1*256->1*1*256
-            self.model += [LinearBlock(dim, dim, norm=norm, activation=activ)]
-        #1*1*256->1*1*output_dim
-        self.model += [LinearBlock(dim, output_dim, norm='none', activation='none')] # no output activations
-        self.model = nn.Sequential(*self.model)
-
-    def forward(self, x):
-        return self.model(x.view(x.size(0), -1))
-
+        x=exp_info
+        for i in range(len(self.main)):
+            x=self.main[i](x)
+            if face_info is not None and i < len(face_info):
+                x=x+face_info[-i-1]
+        return self.activ(x)
 
 class Conv2dBlock(nn.Module):
     def __init__(self,input_dim,output_dim,kernel_size,stride,padding=0,norm='none',activation='relu'):
         super(Conv2dBlock,self).__init__()
-        self.use_bias=False
+        self.use_bias=True
         self.pad=nn.ReflectionPad2d(padding)
 
         norm_dim=output_dim
@@ -266,10 +154,11 @@ class Conv2dBlock(nn.Module):
         return x
 
 
-class LinearBlock(nn.Module):
-    def __init__(self,input_dim,output_dim,norm='none',activation='relu'):
-        super(LinearBlock,self).__init__()
-        self.use_bias=False
+class ConvTranspose2dBlock(nn.Module):
+    def __init__(self,input_dim,output_dim,kernel_size,stride,padding=0,norm='none',activation='relu'):
+        super(ConvTranspose2dBlock,self).__init__()
+        self.use_bias=True
+        # self.pad=nn.ReflectionPad2d(padding)
 
         norm_dim=output_dim
 
@@ -293,10 +182,10 @@ class LinearBlock(nn.Module):
         else:
             self.activation=None
 
-        self.fc=nn.Linear(input_dim,output_dim,bias=self.use_bias)
+        self.conv=nn.ConvTranspose2d(input_dim,output_dim,kernel_size,stride,1,1)
 
     def forward(self,x):
-        x=self.fc(x)
+        x=self.conv(x)
         if(self.norm):
             x=self.norm(x)
         if(self.activation):
@@ -304,6 +193,177 @@ class LinearBlock(nn.Module):
         return x
 
 
+
+
+
+
+
+#
+#
+# class FaceEncoder(nn.Module):
+#     def __init__(self,num_downsample=3,num_resnet=4,input_dim=3,output_dim=64,norm='in',activ='relu'):
+#         super(FaceEncoder,self).__init__()
+#         self.model=[]
+#         #64*64*3->64*64*64
+#         self.model+=[Conv2dBlock(input_dim, output_dim, kernel_size=7, stride=1, padding=3,norm=norm,activation=activ)]
+#         #downsampling blocks
+#         for i in range(num_downsample):
+#             #num_downsample=2,64*64*64->32*32*128->16*16*256
+#             self.model+=[Conv2dBlock(output_dim,2*output_dim,kernel_size=4, stride=2, padding=1,norm=norm,activation=activ)]
+#             output_dim*=2
+#         #residual blocks,16*16*256->16*16*256
+#         self.model+=[ResBlocks(num_resnet, output_dim,norm=norm, activation=activ)]
+#         self.model=nn.Sequential(*self.model)
+#         #256
+#         self.output_dim=output_dim
+#
+#     def forward(self,x):
+#         return self.model(x)
+#
+#
+# class ExpressionEncoder(nn.Module):
+#     def __init__(self,num_downsample=5,input_dim=3,output_dim=64,exp_dim=128,norm='none',activ='relu'):
+#         super(ExpressionEncoder,self).__init__()
+#         self.model=[]
+#         #64*64*3->64*64*64
+#         self.model+=[Conv2dBlock(input_dim,output_dim,kernel_size=7,stride=1,padding=3,norm=norm,activation=activ)]
+#         for i in range(2):
+#             #64*64*64->32*32*128->16*16*256
+#             self.model+=[Conv2dBlock(output_dim,2*output_dim,kernel_size=4, stride=2, padding=1,norm=norm,activation=activ)]
+#             output_dim*=2
+#         for i in range(num_downsample-2):
+#             #num_downsample=4,16*16*256->8*8*256->4*4*256
+#             self.model+=[Conv2dBlock(output_dim,output_dim,kernel_size=4, stride=2, padding=1,norm=norm,activation=activ)]
+#         #global avg pooliing,4*4*256->1*1*256
+#         self.model+=[nn.AdaptiveAvgPool2d(1)]
+#         #1*1*256->1*1*128
+#         self.model+=[nn.Conv2d(output_dim,exp_dim,kernel_size=1, stride=1, padding=0)]
+#         self.model=nn.Sequential(*self.model)
+#         self.output_dim=output_dim
+#
+#     def forward(self,x):
+#         return self.model(x)
+#
+# class Interpolate(nn.Module):
+#     def __init__(self,size,scale_factor=2,mode='nearest'):
+#         self.interp=nn.functional.interpolate
+#         self.scale_factor=scale_factor
+#         self.size=size
+#         self.mode=mode
+#
+#     def forward(self,x):
+#         x=self.interp(x,size=self.size,scale_factor=self.scale_factor, mode=self.mode,align_corners=False)
+#         return x
+#
+#
+# class FaceDecoder(nn.Module):
+#     def __init__(self,num_upsample=3,num_resnet=4,input_dim=256,output_dim=3,res_norm='adain',activ='relu'):
+#         super(FaceDecoder,self).__init__()
+#
+#         self.model=[]
+#         #AdaIN residual blocks,16*16*256
+#         self.model+=[ResBlocks(num_resnet, input_dim,norm=res_norm, activation=activ)]
+#         #upsampling
+#         for i in range(num_upsample):
+#             #num_upsample=2
+#             #16*16*256->32*32*256->32*32*128
+#             #32*32*128->64*64*128->64*64*64
+#             self.model+=[nn.Upsample(scale_factor=2),Conv2dBlock(input_dim,input_dim//2,kernel_size=5, stride=1, padding=2,norm='ln',activation=activ)]
+#             input_dim//=2
+#         #now input_dim=64
+#         #use reflection padding
+#         #64*64*64->64*64*3
+#         self.model+=[Conv2dBlock(input_dim,output_dim,kernel_size=7, stride=1, padding=3,norm='none',activation='tanh')]
+#         self.model=nn.Sequential(*self.model)
+#
+#     def forward(self,x):
+#         return self.model(x)
+#
+#
+# class ResBlock(nn.Module):
+#     def __init__(self, dim, norm='in', activation='relu'):
+#         super(ResBlock, self).__init__()
+#         model = []
+#         model += [Conv2dBlock(dim ,dim, 3, 1, 1, norm=norm, activation=activation)]
+#         model += [Conv2dBlock(dim ,dim, 3, 1, 1, norm=norm, activation='none')]
+#         self.model = nn.Sequential(*model)
+#
+#     def forward(self, x):
+#         residual = x
+#         out = self.model(x)
+#         out += residual
+#         return out
+#
+#
+# class ResBlocks(nn.Module):
+#     def __init__(self, num_blocks, dim, norm='in', activation='relu'):
+#         super(ResBlocks, self).__init__()
+#         self.model = []
+#         for i in range(num_blocks):
+#             self.model += [ResBlock(dim, norm=norm, activation=activation)]
+#         self.model = nn.Sequential(*self.model)
+#
+#     def forward(self, x):
+#         return self.model(x)
+#
+#
+# class MLP(nn.Module):
+#     def __init__(self, input_dim, output_dim, dim=256, n_blk=3, norm='none', activ='relu'):
+#         super(MLP, self).__init__()
+#         self.model = []
+#         #1*1*8->1*1*256
+#         self.model += [LinearBlock(input_dim, dim, norm=norm, activation=activ)]
+#         for i in range(n_blk - 2):
+#             #1*1*256->1*1*256
+#             self.model += [LinearBlock(dim, dim, norm=norm, activation=activ)]
+#         #1*1*256->1*1*output_dim
+#         self.model += [LinearBlock(dim, output_dim, norm='none', activation='none')] # no output activations
+#         self.model = nn.Sequential(*self.model)
+#
+#     def forward(self, x):
+#         return self.model(x.view(x.size(0), -1))
+#
+#
+#
+#
+# class LinearBlock(nn.Module):
+#     def __init__(self,input_dim,output_dim,norm='none',activation='relu'):
+#         super(LinearBlock,self).__init__()
+#         self.use_bias=False
+#
+#         norm_dim=output_dim
+#
+#         if norm=='bn':
+#             self.norm=nn.BatchNorm2d(norm_dim)
+#         elif norm=='in':
+#             self.norm=nn.InstanceNorm2d(norm_dim)
+#         elif norm=='adain':
+#             self.norm=AdaptiveInstanceNorm2d(norm_dim)
+#         elif norm == 'ln':
+#             self.norm = LayerNorm(norm_dim)
+#         else:
+#             self.norm=None
+#
+#         if activation=='relu':
+#             self.activation=nn.ReLU(inplace=True)
+#         elif activation=='lrelu':
+#             self.activation=nn.LeakyReLU(0.2,inplace=True)
+#         elif activation=='tanh':
+#             self.activation=nn.Tanh()
+#         else:
+#             self.activation=None
+#
+#         self.fc=nn.Linear(input_dim,output_dim,bias=self.use_bias)
+#
+#     def forward(self,x):
+#         x=self.fc(x)
+#         if(self.norm):
+#             x=self.norm(x)
+#         if(self.activation):
+#             x=self.activation(x)
+#         return x
+#
+#
 class AdaptiveInstanceNorm2d(nn.Module):
     def __init__(self, num_features, eps=1e-5, momentum=0.1):
         super(AdaptiveInstanceNorm2d, self).__init__()

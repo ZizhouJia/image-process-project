@@ -1,4 +1,4 @@
-it import utils.solver as solver
+import utils.solver as solver
 import utils.loss_function as loss_function
 import torch.nn.functional as F
 import numpy as np
@@ -87,7 +87,7 @@ class GAN_solver(solver.solver):
         g_classify_emo_loss=F.binary_cross_entropy_with_logits(dis_fake_emo,torch.cat((emotion2,emotion1),0),size_average=False)/dis_fake_emo.size()[0]
 
         #compute loss for gradient gradient_penalty
-        alpha = torch.rand(x_real.size(0), 1, 1, 1).cuda()
+        alpha = torch.rand(x1.size(0), 1, 1, 1).cuda()
         x_hat = (alpha * x1.data + (1 - alpha) * fake_x1.data).requires_grad_(True)
         out_src, _ = self.discriminator(x_hat)
         d_loss_gp = loss_function.gradient_penalty(out_src, x_hat)
@@ -152,8 +152,10 @@ class GAN_solver(solver.solver):
         out_images[:,:,0:x1.shape[2],x1.shape[3]*3:x1.shape[3]*4]=x2.cpu()
         return out_images
 
-    def train_loop(self,dataloader,d_dataprovider,param_dict,epochs=100):
+    def train_loop(self,param_dict,epochs=100):
         iteration_count=0
+        dataloader=param_dict["loader"]
+        d_dataprovider=param_dict["provider"]
         for i in range(0,epochs):
             for step,(x1,x2,id1,id2,emotion1,emotion2) in enumerate(dataloader):
                 d_x1,d_x2,d_id1,d_id2,d_emotion1,d_emotion2=d_dataprovider.next()

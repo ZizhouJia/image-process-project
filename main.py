@@ -26,4 +26,7 @@ train_provider_dataset=celebadataset.celebadataset(img_dir='./dataset/img_align_
 
 train_dataprovider=data_provider(train_provider_dataset ,batch_size=16, is_cuda=False)
 train_dataloader=Data.DataLoader(train_dataset,batch_size=4,shuffle=True,num_workers=0)
-solver.train_loop(train_dataloader,train_dataprovider,None,epochs=100)
+param_dict={}
+param_dict["loader"]=train_dataloader
+param_dict["provider"]=train_dataprovider
+solver.train_loop(param_dict,epochs=100)
