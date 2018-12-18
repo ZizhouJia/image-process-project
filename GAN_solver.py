@@ -27,6 +27,8 @@ class GAN_solver(solver.solver):
 
         epoch=input_dict["epoch"]
 
+        iteration=input_dict["iteration"]
+
         feature_id1,feature_emotion1=self.encoder(x1)
         feature_id2,feature_emotion2=self.encoder(x2)
 
@@ -58,11 +60,11 @@ class GAN_solver(solver.solver):
         dis_real_emo=dis_emo[-2*g_batch_size:,:]
 
 
-        d_real_loss=loss_function.D_real_loss(dis_real_x,"lsgan")
-        d_fake_loss=loss_function.D_fake_loss(dis_fake_x,"lsgan")
+        d_real_loss=loss_function.D_real_loss(dis_real_x,"wgan")
+        d_fake_loss=loss_function.D_fake_loss(dis_fake_x,"wgan")
         d_loss=d_real_loss+d_fake_loss
 
-        g_loss=loss_function.G_fake_loss(dis_fake_x,"lsgan")
+        g_loss=loss_function.G_fake_loss(dis_fake_x,"wgan")
 
         rct_image_loss=loss_function.l1_loss(x1,rct_x1)+loss_function.l1_loss(x2,rct_x2)
         rct_image_loss=rct_image_loss/2
@@ -84,6 +86,12 @@ class GAN_solver(solver.solver):
 
         g_classify_emo_loss=F.binary_cross_entropy_with_logits(dis_fake_emo,torch.cat((emotion2,emotion1),0),size_average=False)/dis_fake_emo.size()[0]
 
+        #compute loss for gradient gradient_penalty
+        alpha = torch.rand(x_real.size(0), 1, 1, 1).cuda()
+        x_hat = (alpha * x1.data + (1 - alpha) * fake_x1.data).requires_grad_(True)
+        out_src, _ = self.discriminator(x_hat)
+        d_loss_gp = loss_function.gradient_penalty(out_src, x_hat)
+
         total_g_loss=g_loss+\
         10*cyc_rct_image_loss+ \
         10*rct_image_loss
@@ -91,17 +99,18 @@ class GAN_solver(solver.solver):
         #total_g_loss+=g_classify_id_loss
         total_g_loss+=g_classify_emo_loss
 
-        total_d_loss=d_loss+1.0*d_classify_emo_loss        #1.0*d_classify_id_loss+ \
+        total_d_loss=d_loss+1.0*d_classify_emo_loss+10.0*d_loss_gp
 
-
-        total_d_loss.backward(retain_graph=True)
-        self.dis_opt.step()
-        self.zero_grad_for_all()
+        if(iteration%1==0):
+            total_d_loss.backward(retain_graph=True)
+            self.dis_opt.step()
+            self.zero_grad_for_all()
 
         total_g_loss.backward()
         self.e_opt.step()
         self.d_opt.step()
         self.zero_grad_for_all()
+
         loss={}
         loss["g_loss"]=g_loss.detach().cpu().item()
         loss["rct_image_loss"]=rct_image_loss.detach().cpu().item()
@@ -159,6 +168,7 @@ class GAN_solver(solver.solver):
                 input_dict["d_id"]=torch.cat((d_id1.cuda(),d_id2.cuda()),0)
                 input_dict["d_emotion"]=torch.cat((d_emotion1.cuda(),d_emotion2.cuda()),0)
                 input_dict["epoch"]=i
+                input_dict["iteration"]=iteration_count
                 loss=self.train_one_batch(input_dict)
                 iteration_count+=1
                 if(iteration_count%1==0):

@@ -3,7 +3,6 @@ from datetime import datetime
 from tensorboardX import SummaryWriter
 import torch
 import torch.nn as nn
-import torchvision
 
 def get_time_string():
     dt=datetime.now()
@@ -59,15 +58,15 @@ class solver(object):
 
     def write_log(self,loss,index):
         for key in loss:
-            self.writer.add_scalar("saclar/"+key,loss[key],index)
+            self.writer.add_scalar("scalar/"+key,loss[key],index)
 
     def output_loss(self,loss,epoch,iteration):
         print("in epoch %d iteration %d "%(epoch,iteration))
         print(loss)
 
-    def write_log_image(self,image_dict,index):
-        for key in image_dict:
-            self.writer.add_image("image",torchvision.utils.make_grid(image_dict[key]),index)
+    def write_log_image(self,image,index):
+        for key in image:
+            self.writer.add_image('image/'+key,image,index)
 
 
     def save_models(self,epoch=-1):
