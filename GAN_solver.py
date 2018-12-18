@@ -132,15 +132,15 @@ class GAN_solver(solver.solver):
         fake_x2=(fake_x2+1)/2
         x2=(x2+1)/2
 
-        x1=x1.cpu().detach().numpy()
-        x2=x2.cpu().detach().numpy()
-        fake_x1=fake_x1.cpu().detach().numpy()
-        fake_x2=fake_x2.cpu().detach().numpy()
-        out_images=np.zeros(batch_size,3,x1.shape[2],x1.shape[3])
-        out_images[:,:,0:x1.shape[2],0:x1.shape[3]]=x1
-        out_images[:,:,0:x1.shape[2],x1.shape[3]:x1.shape[3]*2]=fake_x1
-        out_images[:,:,0:x1.shape[2],x1.shape[3]*2:x1.shape[3]*3]=fake_x2
-        out_images[:,:,0:x1.shape[2],x1.shape[3]*3:x1.shape[3]*4]=x2
+        # x1=x1.cpu().detach().numpy()
+        # x2=x2.cpu().detach().numpy()
+        # fake_x1=fake_x1.cpu().detach().numpy()
+        # fake_x2=fake_x2.cpu().detach().numpy()
+        out_images=torch.zeros((batch_size,3,x1.shape[2],x1.shape[3]*4))
+        out_images[:,:,0:x1.shape[2],0:x1.shape[3]]=x1.cpu()
+        out_images[:,:,0:x1.shape[2],x1.shape[3]:x1.shape[3]*2]=fake_x1.cpu()
+        out_images[:,:,0:x1.shape[2],x1.shape[3]*2:x1.shape[3]*3]=fake_x2.cpu()
+        out_images[:,:,0:x1.shape[2],x1.shape[3]*3:x1.shape[3]*4]=x2.cpu()
         return out_images
 
     def train_loop(self,dataloader,d_dataprovider,param_dict,epochs=100):
@@ -164,10 +164,10 @@ class GAN_solver(solver.solver):
                 if(iteration_count%1==0):
                     self.write_log(loss,iteration_count)
                     self.output_loss(loss,i,iteration_count)
-                if(iteration_count%100==0):
-                    out_images=test_one_batch(input_dict)
+                if(iteration_count%10==0):
+                    out_images=self.test_one_batch(input_dict)
                     images={}
-                    iamges["image"]=out_images
-                    self.write_log_image(out_images,int(iteration_count/100))
+                    images["image"]=out_images
+                    self.write_log_image(images,int(iteration_count/100))
             if(i%1==0):
                 self.save_models(epoch=i)
