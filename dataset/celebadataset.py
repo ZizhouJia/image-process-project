@@ -29,6 +29,7 @@ class celebadataset(Data.Dataset):
         self.attr2idx={}
         self.idx2attr={}
 
+
         if(self.load_data==True):
             self.preprocess()
         else:
@@ -46,6 +47,7 @@ class celebadataset(Data.Dataset):
             self.selected=[]
             for i in range(len(self.test)):
                 self.selected.append(i)
+        self.index=len(self.selected)
 
     def preprocess(self):
         print("process dataset...")
@@ -99,6 +101,17 @@ class celebadataset(Data.Dataset):
 
 
     def __getitem__(self,index):
+        if(self.index<10):
+            if(self.mode=='train'):
+                self.selected=[]
+                for i in range(len(self.train)):
+                    self.selected.append(i)
+            else:
+                self.selected=[]
+                for i in range(len(self.test)):
+                    self.selected.append(i)
+            self.index=len(self.selected)
+        self.index-=2
         select_list_len=len(self.selected)
 
         list_index=random.randint(0, select_list_len-1)
@@ -113,8 +126,8 @@ class celebadataset(Data.Dataset):
             img1name,img1_label,img1_id=self.train[img1_index]
             img2name,img2_label,img2_id=self.train[img2_index]
         else:
-            img1,img1_label,img1_id=self.test[img1_index]
-            img2,img2_label,img2_id=self.test[img2_index]
+            img1name,img1_label,img1_id=self.test[img1_index]
+            img2name,img2_label,img2_id=self.test[img2_index]
 
         img1=Image.open(os.path.join(self.img_dir, img1name))
         img2=Image.open(os.path.join(self.img_dir, img2name))
@@ -127,9 +140,9 @@ class celebadataset(Data.Dataset):
 
     def __len__(self):
         if(self.mode=='train'):
-            return len(self.train)/2-2
+            return len(self.train)/2-10
         else:
-            return len(self.test)/2-2
+            return len(self.test)/2-10
 
 
 if __name__ == '__main__':

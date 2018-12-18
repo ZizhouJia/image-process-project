@@ -81,7 +81,7 @@ class Decoder(nn.Module):
         adain_params = self.mlp(exp_info)
         self.assign_adain_params(adain_params, self.dec)
         x = self.dec(face_info)
-        return torch.sigmoid(x)
+        return x
 
     def assign_adain_params(self, adain_params, model):
         # assign the adain_params to the AdaIN layers in model
@@ -147,6 +147,16 @@ class ExpressionEncoder(nn.Module):
     def forward(self,x):
         return self.model(x)
 
+class Interpolate(nn.Module):
+    def __init__(self,size,scale_factor=2,mode='nearest'):
+        self.interp=nn.functional.interpolate
+        self.scale_factor=scale_factor
+        self.size=size
+        self.mode=mode
+
+    def forward(self,x):
+        x=self.interp(x,size=self.size,scale_factor=self.scale_factor, mode=self.mode,align_corners=False)
+        return x
 
 
 class FaceDecoder(nn.Module):
