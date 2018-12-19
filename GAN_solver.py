@@ -88,28 +88,30 @@ class GAN_solver(solver.solver):
 
         #compute loss for gradient gradient_penalty
         alpha = torch.rand(x1.size(0), 1, 1, 1).cuda()
-        x_hat = (alpha * x1.data + (1 - alpha) * fake_x1.data).requires_grad_(True)
+        x_hat = (alpha * x1.data + (1 - alpha) * rct_x1.data).requires_grad_(True)
         out_src, _ = self.discriminator(x_hat)
         d_loss_gp = loss_function.gradient_penalty(out_src, x_hat)
 
         total_g_loss=g_loss+\
         10*cyc_rct_image_loss+ \
-        10*rct_image_loss
+        10*rct_image_loss+ \
+        0.1*g_classify_emo_loss
 
-        #total_g_loss+=g_classify_id_loss
-        total_g_loss+=g_classify_emo_loss
 
-        total_d_loss=d_loss+1.0*d_classify_emo_loss+10.0*d_loss_gp
+        total_d_loss=d_loss+0.1*d_classify_emo_loss+10.0*d_loss_gp
+        retain=False
+        if(iteration%3==0):
+            retain=True
+        total_d_loss.backward(retain_graph=retain)
+        self.dis_opt.step()
+        self.zero_grad_for_all()
 
-        if(iteration%1==0):
-            total_d_loss.backward(retain_graph=True)
-            self.dis_opt.step()
+        if(iteration%3==0):
+            total_g_loss.backward()
+            self.e_opt.step()
+            self.d_opt.step()
             self.zero_grad_for_all()
 
-        total_g_loss.backward()
-        self.e_opt.step()
-        self.d_opt.step()
-        self.zero_grad_for_all()
 
         loss={}
         loss["g_loss"]=g_loss.detach().cpu().item()
@@ -124,6 +126,7 @@ class GAN_solver(solver.solver):
         loss["d_Classify_emo_loss"]=d_classify_emo_loss.detach().cpu().item()
         loss["total_g_loss"]=total_g_loss.detach().cpu().item()
         loss["total_d_loss"]=total_d_loss.detach().cpu().item()
+        loss["d_loss_gp"]=d_loss_gp.detach().cpu().item()
         return loss
 
     def test_one_batch(self,input_dict):

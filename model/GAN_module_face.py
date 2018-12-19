@@ -55,7 +55,39 @@ class Discriminator(nn.Module):
         out_img_judge=self.conv1(x)
         #out_img_id=self.conv2(x)
         out_img_emotion=self.conv3(x)
-        return out_img_judge ,out_img_emotion.view(out_img_emotion.size(0),out_img_emotion.size(1))#out_img_id.view(out_img_id.size(0),out_img_id.size(1)),out_img_emotion.view(out_img_emotion.size(0),out_img_emotion.size(1))
+        return out_img_judge ,out_img_emotion.view(out_img_emotion.size(0),out_img_emotion.size(1))
+
+class Discriminator_for_label(nn.Module):
+    def __init__(self,img_size=128,conv_dim=64,num_emotion=40,num_id=10177,repeat_num=6,norm='in',activ='lrelu'):
+        super(Discriminator_for_label,self).__init__()
+
+        self.model=[]
+        #64*64*3->32*32*64
+        self.model+=[Conv2dBlock(3, conv_dim, kernel_size=4, stride=2, padding=1,norm='in',activation=activ)]
+        #downsampling blocks
+        for i in range(repeat_num-1):
+            #num_layer=5,32*32*64->16*16*128->8*8*256->4*4*512->2*2*1024
+            self.model+=[Conv2dBlock(conv_dim,2*conv_dim,kernel_size=4, stride=2, padding=1,norm=norm,activation=activ)]
+            conv_dim*=2
+        self.model=nn.Sequential(*self.model)
+
+        k_s=int(img_size/np.power(2,repeat_num))
+
+        #2*2*1024->2*2*1
+        self.conv1=nn.Conv2d(conv_dim,1,kernel_size=2,stride=1,padding=0,bias=False)
+        #2*2*1024->1*1*10177
+        self.conv2=nn.Conv2d(conv_dim,num_id,kernel_size=k_s,bias=False)
+        #2*2*1024->1*1*40
+        self.conv3=nn.Conv2d(conv_dim,num_emotion,kernel_size=k_s,bias=False)
+
+    def forward(self,x):
+        x=self.model(x)
+        out_img_judge=self.conv1(x)
+        #out_img_id=self.conv2(x)
+        out_img_emotion=self.conv3(x)
+        return out_img_emotion.view(out_img_emotion.size(0),out_img_emotion.size(1))
+
+
 
 class NTimesTanh(nn.Module):
     def __init__(self,n):
@@ -73,11 +105,16 @@ class Encoder(nn.Module):
     def __init__(self):
         super(Encoder,self).__init__()
         self.main=nn.ModuleList([
+            #128*128*3->64*64*64->32*32*128->16*16*256->8*8*512->4*4*1024
             nn.Sequential(Conv2dBlock(3, 64, kernel_size=3, stride=2, padding=1,norm='in',activation='lrelu')),
             nn.Sequential(Conv2dBlock(64, 128, kernel_size=3, stride=2, padding=1,norm='in',activation='lrelu')),
             nn.Sequential(Conv2dBlock(128, 256, kernel_size=3, stride=2, padding=1,norm='in',activation='lrelu')),
-            nn.Sequential(Conv2dBlock(256, 512, kernel_size=3, stride=2, padding=1,norm='in',activation='lrelu'))
+            nn.Sequential(Conv2dBlock(256, 512, kernel_size=3, stride=2, padding=1,norm='in',activation='lrelu')),
+            nn.Sequential(Conv2dBlock(512, 1024, kernel_size=3, stride=2, padding=1,norm='none',activation='lrelu'))
         ])
+        #4*4*1024->2*2*1024
+        self.avg=nn.AvgPool2d(4)
+
         # init_weights(self.main)
         # #64*64*3->16*16*256
         # self.face_enc=FaceEncoder(num_downsample=2,num_resnet=4,input_dim=3,output_dim=64,norm='in',activ='relu')
@@ -91,28 +128,35 @@ class Encoder(nn.Module):
             exp_info=self.main[i](exp_info)
             if(i<len(self.main)-1):
                 face_info.append(exp_info)
+        exp_info=self.avg(exp_info)
         return face_info,exp_info
 
 
 class Decoder(nn.Module):
     def __init__(self):
         super(Decoder,self).__init__()
+        #2*2*1024->4*4*1024
+        self.conv=nn.Sequential(ConvTranspose2dBlock(1024, 1024, kernel_size=4, stride=2, padding=1,norm='in',activation='relu'))
         self.main=nn.ModuleList([
-            nn.Sequential(ConvTranspose2dBlock(512, 256, kernel_size=3, stride=2, padding=1,norm='in',activation='relu')),
-            nn.Sequential(ConvTranspose2dBlock(256, 128, kernel_size=3, stride=2, padding=1,norm='in',activation='relu')),
-            nn.Sequential(ConvTranspose2dBlock(128, 64, kernel_size=3, stride=2, padding=1,norm='in',activation='relu')),
-            nn.Sequential(ConvTranspose2dBlock(64, 3, kernel_size=3, stride=2, padding=1,norm='in',activation='none')),
+            #4*4*1024->8*8*512->16*16*256->32*32*128->64*64*64->128*128*3
+            nn.Sequential(ConvTranspose2dBlock(1024, 512, kernel_size=4, stride=2, padding=1,norm='in',activation='relu')),
+            nn.Sequential(ConvTranspose2dBlock(512, 256, kernel_size=4, stride=2, padding=1,norm='in',activation='relu')),
+            nn.Sequential(ConvTranspose2dBlock(256, 128, kernel_size=4, stride=2, padding=1,norm='in',activation='relu')),
+            nn.Sequential(ConvTranspose2dBlock(128, 64, kernel_size=4, stride=2, padding=1,norm='in',activation='relu')),
+            nn.Sequential(ConvTranspose2dBlock(64, 3, kernel_size=4, stride=2, padding=1,norm='none',activation='none')),
         ])
+        # self.conv_out=nn.Conv2d(64,3,kernel_size=7,stride=1,padding=3,bias=True)
         self.activ=NTimesTanh(1)
         # init_weights(self.main)
 
 
     def forward(self,face_info,exp_info):
-        x=exp_info
+        x=self.conv(exp_info)
         for i in range(len(self.main)):
             x=self.main[i](x)
             if face_info is not None and i < len(face_info):
                 x=x+face_info[-i-1]
+        # x=self.conv_out(x)
         return self.activ(x)
 
 class Conv2dBlock(nn.Module):
@@ -182,7 +226,7 @@ class ConvTranspose2dBlock(nn.Module):
         else:
             self.activation=None
 
-        self.conv=nn.ConvTranspose2d(input_dim,output_dim,kernel_size,stride,1,1)
+        self.conv=nn.ConvTranspose2d(input_dim,output_dim,kernel_size,stride,padding,0)
 
     def forward(self,x):
         x=self.conv(x)
