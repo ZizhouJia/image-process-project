@@ -10,13 +10,14 @@ models=[]
 models.append(GAN_module_face.Encoder())
 models.append(GAN_module_face.Decoder())
 models.append(GAN_module_face.Discriminator())
+models.append(GAN_module_face.Classifier())
 
 for i in range(0,len(models)):
     models[i]=nn.DataParallel(models[i],device_ids=[0,1])
 
-lrs=[0.0001,0.0001,0.0001]
+lrs=[0.0001,0.0001,0.0001,0.001]
 
-optimizers=generate_optimizers(models,lrs,optimizer_type="adam",weight_decay=0.001)
+optimizers=generate_optimizers(models,lrs,optimizer_type="adam",weight_decay=0.0001)
 function=weights_init(init_type='xavier')
 solver=GAN_solver.GAN_solver(models,'celeba',optimizers,save_path="checkpoints")
 solver.init_models(function)

@@ -35,14 +35,23 @@ class GAN_solver(solver.solver):
         fake_x1=self.decoder(feature_id1,feature_emotion2)
         fake_x2=self.decoder(feature_id2,feature_emotion1)
 
+        # fake_x1=torch.clamp(fake_x1+x1,-1,1)
+        # fake_x2=torch.clamp(fake_x2+x2,-1,1)
+
         rct_x1=self.decoder(feature_id1,feature_emotion1)
         rct_x2=self.decoder(feature_id2,feature_emotion2)
+
+        # rct_x1=torch.clamp(rct_x1+x1,-1,1)
+        # rct_x2=torch.clamp(rct_x2+x2,-1,1)
 
         feature_id1_fake,feature_emotion2_fake=self.encoder(fake_x1)
         feature_id2_fake,feature_emotion1_fake=self.encoder(fake_x2)
 
         cyc_x1=self.decoder(feature_id1_fake,feature_emotion1_fake)
         cyc_x2=self.decoder(feature_id2_fake,feature_emotion2_fake)
+
+        # cyc_x1=torch.clamp(cyc_x1+x1,-1,1)
+        # cyc_x2=torch.clamp(cyc_x2+x2,-1,1)
 
         real_emo=self.classifier(d_x)
         real_emo_label=d_emotion
@@ -66,8 +75,8 @@ class GAN_solver(solver.solver):
         cyc_rct_image_loss=cyc_rct_image_loss/2
 
         d_classify_emo_loss=F.binary_cross_entropy_with_logits(real_emo,real_emo_label,size_average=False)/real_emo.size()[0]
-
-        g_classify_emo_loss=F.binary_cross_entropy_with_logits(fake_emo,fake_emo_label,0),size_average=False)/fake_emo.size()[0]
+        g_classify_emo_loss=F.binary_cross_entropy_with_logits(fake_emo,fake_emo_label,size_average=False)
+        g_classify_emo_loss=g_classify_emo_loss/fake_emo.size()[0]
 
         #compute loss for gradient gradient_penalty
         alpha = torch.rand(x1.size(0), 1, 1, 1).cuda()
@@ -82,15 +91,15 @@ class GAN_solver(solver.solver):
 
         total_d_loss=d_loss+d_classify_emo_loss+10.0*d_loss_gp
         retain=False
-        
-        if(iteration%3==0):
+
+        if(iteration%5==0):
             retain=True
         total_d_loss.backward(retain_graph=retain)
         self.dis_opt.step()
         self.cls_opt.step()
         self.zero_grad_for_all()
 
-        if(iteration%3==0):
+        if(iteration%5==0):
             total_g_loss.backward()
             self.e_opt.step()
             self.d_opt.step()
@@ -109,7 +118,7 @@ class GAN_solver(solver.solver):
         #loss["d_classify_id_loss"]=d_classify_id_loss.detach().cpu().item()
         loss["d_Classify_emo_loss"]=d_classify_emo_loss.detach().cpu().item()
         loss["total_g_loss"]=total_g_loss.detach().cpu().item()
-        loss["total_d_loss"]=total_d_loss.detach().cpu().item()-loss["d_classify_emo_loss"]
+        loss["total_d_loss"]=total_d_loss.detach().cpu().item()-loss["d_Classify_emo_loss"]
         loss["d_loss_gp"]=d_loss_gp.detach().cpu().item()
         return loss
 
@@ -121,7 +130,9 @@ class GAN_solver(solver.solver):
         feature_id2,feature_emotion2=self.encoder(x2)
 
         fake_x1=self.decoder(feature_id1,feature_emotion1)
+        # fake_x1=torch.clamp(fake_x1+x1,-1,1)
         fake_x2=self.decoder(feature_id1,feature_emotion2)
+        # fake_x2=torch.clamp(fake_x2+x1,-1,1)
 
         x1=(x1+1)/2
         fake_x1=(fake_x1+1)/2

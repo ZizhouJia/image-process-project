@@ -77,19 +77,22 @@ class celebadataset(Data.Dataset):
             values = split[1:]
 
             label = []
+            select=[18,20,31,39]
             for idx in range(len(self.idx2attr)):
-                if(values[idx] == '1'):
-                    label.append(1)
-                else:
-                    label.append(0)
+                if(idx in select):
+                    if(values[idx] == '1'):
+                        label.append(1)
+                    else:
+                        label.append(0)
+            #print(label)
 
             #image=Image.open(os.path.join(self.img_dir, filename))
 
 
             alldata.append([filename,label,imgidentity[i]])
 
-        random.seed(1234)
-        random.shuffle(lines)
+        #random.seed(1234)
+        random.shuffle(alldata)
         for i, line in enumerate(alldata):
             if(i<2000):
                 self.test.append(alldata[i])
@@ -101,7 +104,7 @@ class celebadataset(Data.Dataset):
 
 
     def __getitem__(self,index):
-        if(self.index<10):
+        if(self.index<20):
             if(self.mode=='train'):
                 self.selected=[]
                 for i in range(len(self.train)):
@@ -140,7 +143,7 @@ class celebadataset(Data.Dataset):
 
     def __len__(self):
         if(self.mode=='train'):
-            return len(self.train)/2-10
+            return (len(self.train)-39)/2
         else:
             return len(self.test)/2-10
 
